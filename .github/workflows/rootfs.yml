@@ -10,14 +10,16 @@ on:
         description: "Output archive name"
         default: "rootfs"
         required: true
-      XZ_LEVEL:
-        description: "XZ compression level (0-9)"
-        default: "3"
+      COMPRESSION:
+        description: "Compression profile"
+        type: choice
         required: true
-      XZ_THREADS:
-        description: "XZ threads (0 = auto)"
-        default: "0"
-        required: true
+        default: "balanced (xz -3)"
+        options:
+          - "fastest (zstd)"
+          - "fast (xz -1)"
+          - "balanced (xz -3)"
+          - "compact (xz -6)"
 
 jobs:
   build:
@@ -35,7 +37,7 @@ jobs:
             xz-utils zstd util-linux e2fsprogs \
             p7zip-full qemu-utils unzip ca-certificates
 
-      - name: Download (robust)
+      - name: Download
         run: |
           curl -L --fail --retry 5 --retry-delay 3 -C - \
             -o input.bin "${{ github.event.inputs.ROOTFS_URL }}"
@@ -51,27 +53,13 @@ jobs:
           type=$(file -b "$f")
 
           case "$type" in
-            *tar*)
-              sudo tar --numeric-owner --xattrs --acls -xf "$f" -C extracted
-              ;;
-            *gzip*)
-              sudo tar --numeric-owner --xattrs --acls -xzf "$f" -C extracted
-              ;;
-            *XZ*)
-              sudo tar --numeric-owner --xattrs --acls -xJf "$f" -C extracted
-              ;;
-            *Zstandard*)
-              sudo tar --numeric-owner --xattrs --acls --zstd -xf "$f" -C extracted
-              ;;
-            *Zip*)
-              unzip -q "$f" -d extracted
-              ;;
-            *7-zip*)
-              7z x "$f" -oextracted
-              ;;
-            *)
-              cp "$f" extracted/
-              ;;
+            *tar*) sudo tar --numeric-owner --xattrs --acls -xf "$f" -C extracted ;;
+            *gzip*) sudo tar --numeric-owner --xattrs --acls -xzf "$f" -C extracted ;;
+            *XZ*) sudo tar --numeric-owner --xattrs --acls -xJf "$f" -C extracted ;;
+            *Zstandard*) sudo tar --numeric-owner --xattrs --acls --zstd -xf "$f" -C extracted ;;
+            *Zip*) unzip -q "$f" -d extracted ;;
+            *7-zip*) 7z x "$f" -oextracted ;;
+            *) cp "$f" extracted/ ;;
           esac
 
           rm -f "$f"
@@ -136,19 +124,40 @@ jobs:
           test -d extracted/etc || exit 1
           test -d extracted/bin || exit 1
 
-      - name: Repack (user-tunable xz)
+      - name: Repack (profile-based)
         run: |
-          LEVEL=${{ github.event.inputs.XZ_LEVEL }}
-          THREADS=${{ github.event.inputs.XZ_THREADS }}
+          THREADS=0
+          OUT="${{ github.event.inputs.OUTPUT_NAME }}"
+
+          case "${{ github.event.inputs.COMPRESSION }}" in
+            "fast (xz -1)")
+              CMD="xz -T${THREADS} -1"
+              EXT="tar.xz"
+              ;;
+            "balanced (xz -3)")
+              CMD="xz -T${THREADS} -3"
+              EXT="tar.xz"
+              ;;
+            "small (xz -6)")
+              CMD="xz -T${THREADS} -6"
+              EXT="tar.xz"
+              ;;
+            "fastest (zstd)")
+              CMD="zstd -T${THREADS} -15"
+              EXT="tar.zst"
+              ;;
+          esac
 
           sudo tar --numeric-owner --xattrs --acls \
             --sparse \
-            -I "xz -T${THREADS} -${LEVEL}" \
-            -cf "${{ github.event.inputs.OUTPUT_NAME }}.tar.xz" \
+            -I "$CMD" \
+            -cf "${OUT}.${EXT}" \
             -C extracted .
 
+          echo "OUT_FILE=${OUT}.${EXT}" >> $GITHUB_ENV
+
       - name: SHA256
-        run: sha256sum "${{ github.event.inputs.OUTPUT_NAME }}.tar.xz" > sha256.txt
+        run: sha256sum "$OUT_FILE" > sha256.txt
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -158,5 +167,5 @@ jobs:
           tag_name: ${{ github.run_id }}
           name: rootfs-${{ github.run_id }}
           files: |
-            ${{ github.event.inputs.OUTPUT_NAME }}.tar.xz
+            ${{ env.OUT_FILE }}
             sha256.txt
