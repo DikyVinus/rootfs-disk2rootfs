@@ -1,0 +1,154 @@
+name: RootFS Extract and Repack
+
+on:
+  workflow_dispatch:
+    inputs:
+      ROOTFS_URL:
+        description: "RootFS URL (.tar.*, .img, .raw, .qcow2, disk images)"
+        required: true
+      OUTPUT_NAME:
+        description: "Output archive name"
+        default: "rootfs"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions: write-all
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            xz-utils zstd util-linux e2fsprogs \
+            p7zip-full qemu-utils unzip ca-certificates
+
+      - name: Download (robust)
+        run: |
+          curl -L --fail --retry 5 --retry-delay 3 -C - \
+            -o input.bin "${{ github.event.inputs.ROOTFS_URL }}"
+          echo "FILE=input.bin" >> $GITHUB_ENV
+
+      - name: Prepare workspace
+        run: mkdir -p extracted mnt
+
+      - name: Extract input (root-safe, metadata preserved)
+        run: |
+          set -e
+          f="$FILE"
+          type=$(file -b "$f")
+
+          case "$type" in
+            *tar*)
+              sudo tar --numeric-owner --xattrs --acls -xf "$f" -C extracted
+              ;;
+            *gzip*)
+              sudo tar --numeric-owner --xattrs --acls -xzf "$f" -C extracted
+              ;;
+            *XZ*)
+              sudo tar --numeric-owner --xattrs --acls -xJf "$f" -C extracted
+              ;;
+            *Zstandard*)
+              sudo tar --numeric-owner --xattrs --acls --zstd -xf "$f" -C extracted
+              ;;
+            *Zip*)
+              unzip -q "$f" -d extracted
+              ;;
+            *7-zip*)
+              7z x "$f" -oextracted
+              ;;
+            *)
+              cp "$f" extracted/
+              ;;
+          esac
+
+          rm -f "$f"
+
+      - name: Convert qcow → raw
+        run: |
+          shopt -s nullglob
+          for f in extracted/*.qcow2 extracted/*.qcow; do
+            [ -f "$f" ] || continue
+            echo "Converting $f"
+            qemu-img convert -O raw "$f" "${f%.*}.raw"
+          done
+
+      - name: Extract disk images
+        run: |
+          set -e
+          shopt -s nullglob
+          found=0
+
+          for img in extracted/*.img extracted/*.raw extracted/*disk*; do
+            [ -f "$img" ] || continue
+
+            if file "$img" | grep -qiE "filesystem|ext4|xfs|f2fs"; then
+              echo "Direct mount: $img"
+              sudo mount -o loop,ro "$img" mnt || continue
+              sudo cp -a mnt/. extracted/
+              sudo umount mnt
+              found=1
+              break
+            fi
+          done
+
+          if [ "$found" -eq 0 ]; then
+            for img in extracted/*.img extracted/*.raw extracted/*disk*; do
+              [ -f "$img" ] || continue
+
+              echo "Partition scan: $img"
+              loop=$(sudo losetup -Pf --show "$img") || continue
+
+              for p in ${loop}p*; do
+                sudo mount -o ro "$p" mnt 2>/dev/null || continue
+                sudo cp -a mnt/. extracted/
+                sudo umount mnt
+                found=1
+                break
+              done
+
+              sudo losetup -d "$loop"
+              [ "$found" -eq 1 ] && break
+            done
+          fi
+
+          echo "FOUND=$found" >> $GITHUB_ENV
+
+      - name: Cleanup intermediates (safe)
+        run: |
+          if [ "$FOUND" = "1" ]; then
+            sudo rm -f extracted/*.img extracted/*.raw \
+              extracted/*.qcow extracted/*.qcow2 \
+              extracted/*.zip extracted/*.7z 2>/dev/null || true
+          fi
+
+      - name: Validate rootfs
+        run: |
+          test -d extracted/etc || exit 1
+          test -d extracted/bin || exit 1
+
+      - name: Repack 
+        run: |
+          sudo tar --numeric-owner --xattrs --acls \
+            --sparse \
+            -I 'xz -T0 -3' \
+            -cf "${{ github.event.inputs.OUTPUT_NAME }}.tar.xz" \
+            -C extracted .
+
+      - name: SHA256
+        run: sha256sum "${{ github.event.inputs.OUTPUT_NAME }}.tar.xz" > sha256.txt
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.run_id }}
+          name: rootfs-${{ github.run_id }}
+          files: |
+            ${{ github.event.inputs.OUTPUT_NAME }}.tar.xz
+            sha256.txt
