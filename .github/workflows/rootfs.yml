@@ -10,6 +10,14 @@ on:
         description: "Output archive name"
         default: "rootfs"
         required: true
+      XZ_LEVEL:
+        description: "XZ compression level (0-9)"
+        default: "3"
+        required: true
+      XZ_THREADS:
+        description: "XZ threads (0 = auto)"
+        default: "0"
+        required: true
 
 jobs:
   build:
@@ -36,7 +44,7 @@ jobs:
       - name: Prepare workspace
         run: mkdir -p extracted mnt
 
-      - name: Extract input (root-safe, metadata preserved)
+      - name: Extract input (root-safe)
         run: |
           set -e
           f="$FILE"
@@ -73,7 +81,6 @@ jobs:
           shopt -s nullglob
           for f in extracted/*.qcow2 extracted/*.qcow; do
             [ -f "$f" ] || continue
-            echo "Converting $f"
             qemu-img convert -O raw "$f" "${f%.*}.raw"
           done
 
@@ -87,7 +94,6 @@ jobs:
             [ -f "$img" ] || continue
 
             if file "$img" | grep -qiE "filesystem|ext4|xfs|f2fs"; then
-              echo "Direct mount: $img"
               sudo mount -o loop,ro "$img" mnt || continue
               sudo cp -a mnt/. extracted/
               sudo umount mnt
@@ -100,7 +106,6 @@ jobs:
             for img in extracted/*.img extracted/*.raw extracted/*disk*; do
               [ -f "$img" ] || continue
 
-              echo "Partition scan: $img"
               loop=$(sudo losetup -Pf --show "$img") || continue
 
               for p in ${loop}p*; do
@@ -118,7 +123,7 @@ jobs:
 
           echo "FOUND=$found" >> $GITHUB_ENV
 
-      - name: Cleanup intermediates (safe)
+      - name: Cleanup intermediates
         run: |
           if [ "$FOUND" = "1" ]; then
             sudo rm -f extracted/*.img extracted/*.raw \
@@ -131,11 +136,14 @@ jobs:
           test -d extracted/etc || exit 1
           test -d extracted/bin || exit 1
 
-      - name: Repack 
+      - name: Repack (user-tunable xz)
         run: |
+          LEVEL=${{ github.event.inputs.XZ_LEVEL }}
+          THREADS=${{ github.event.inputs.XZ_THREADS }}
+
           sudo tar --numeric-owner --xattrs --acls \
             --sparse \
-            -I 'xz -T0 -3' \
+            -I "xz -T${THREADS} -${LEVEL}" \
             -cf "${{ github.event.inputs.OUTPUT_NAME }}.tar.xz" \
             -C extracted .
 
