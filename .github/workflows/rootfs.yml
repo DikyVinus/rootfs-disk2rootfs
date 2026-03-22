@@ -79,7 +79,7 @@ jobs:
               *Zip*)
                 unzip -q "$f" -d extracted
                 ;;
-              *7-zip*)
+              *7z*)
                 7z x "$f" -oextracted
                 ;;
               *)
