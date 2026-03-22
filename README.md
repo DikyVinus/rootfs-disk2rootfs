@@ -72,7 +72,7 @@ It removes disk/container overhead and standardizes filesystem layout.
 
 #### Default
 ```bash
-xz -T0 -3
+xz -T2 -3
 ```
 
 multithreaded
