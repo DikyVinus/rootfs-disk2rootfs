@@ -6,43 +6,49 @@ Convert arbitrary Linux root filesystem images into a clean, normalized, compres
 
 Overview
 
-"rootfs-disk2rootfs" ingests various rootfs sources:
+"rootfs-disk2rootfs" ingests heterogeneous rootfs sources and produces a standardized output:
 
-- disk images (".img", ".raw", ".qcow2")
-- archives (".tar", ".tar.gz", ".tar.xz", ".tar.zst")
-- mixed containers (".zip", ".7z")
+- Disk images: ".img", ".raw", ".qcow2"
+- Archives: ".tar", ".tar.gz", ".tar.xz", ".tar.zst"
+- Containers: ".zip", ".7z"
 
 It extracts the actual filesystem, removes container overhead, and outputs a normalized ".tar.xz" rootfs.
 
 ---
 
-Key Behavior
+Key Features
 
 - Converts disk → filesystem → tar
-- Removes unused blocks and container artifacts
+- Removes:
+  - unused blocks
+  - partition tables
+  - container artifacts
 - Preserves:
   - ownership (UID/GID)
   - permissions
   - symlinks
   - xattrs / ACLs
-- Recompresses using optimized multithreaded "xz"
+- Recompresses using multithreaded "xz"
 
 ---
 
 Why Use This
 
-Official rootfs or images often include:
+Official rootfs/images often include:
 
 - padding / unused space
-- partition tables
-- inefficient compression
+- embedded partition layouts
+- suboptimal compression
 - container-specific structure
 
 This tool:
 
-- reduces size (commonly 10–70%)
-- produces deterministic filesystem layout
-- standardizes output for chroot / containers
+- reduces size (~10–70% typical)
+- produces deterministic output
+- standardizes rootfs for:
+  - "chroot"
+  - containers
+  - CI pipelines
 
 ---
 
@@ -59,32 +65,32 @@ Containers| ".zip", ".7z"
 Output
 
 - Format: "rootfs.tar.xz"
-- Properties:
+- Characteristics:
   - normalized filesystem
   - no disk/container layers
   - ready for "chroot", containers, or repackaging
 
 ---
 
-Workflow (internal)
+Internal Workflow
 
 1. Download input
-2. Extract archive (if needed)
-3. Convert qcow → raw
+2. Extract archive (if applicable)
+3. Convert "qcow → raw"
 4. Detect filesystem:
-   - direct mount (ext4/xfs/f2fs)
-   - or partition scan via "losetup"
+   - direct mount (ext4 / xfs / f2fs)
+   - or partition scan ("losetup")
 5. Copy filesystem contents
-6. Remove intermediate disk/container files
-7. Repack with:
+6. Remove intermediate artifacts
+7. Repack using:
    - "tar"
    - "xz -T0 -3"
 
 ---
 
-Example Usage
+Usage
 
-Extract and repack
+Extract rootfs
 
 sudo tar --numeric-owner -xJf rootfs.tar.xz -C rootfs
 
@@ -106,10 +112,11 @@ xz -T0 -3
 - multithreaded
 - balanced speed vs size
 
-Alternative:
+Alternatives:
 
 - "-6" → smaller, slower
-- "zstd" → faster, slightly larger
+- "-1" → faster, larger
+- "zstd" → faster, slightly larger output
 
 ---
 
@@ -118,8 +125,8 @@ Limitations
 - Requires root privileges for:
   - extraction
   - mounting
-  - correct ownership restoration
-- Very large images may exceed CI disk limits
+  - ownership restoration
+- Large images may exceed CI disk limits
 - Non-Linux filesystems are not supported
 
 ---
@@ -127,14 +134,14 @@ Limitations
 Safety Model
 
 - Intermediate disk images are removed only after successful extraction
-- Rootfs validity is checked ("/etc", "/bin")
-- Cleanup is bounded to avoid filesystem corruption
+- Rootfs validity is verified ("/etc", "/bin")
+- Cleanup is bounded to prevent filesystem corruption
 
 ---
 
 Typical Size Reduction
 
-Input| Reduction
+Input Type| Reduction
 Raw disk images| 30–70%
 ".tar.gz" → ".tar.xz"| 10–30%
 Already optimized ".tar.xz"| minimal
@@ -144,13 +151,13 @@ Already optimized ".tar.xz"| minimal
 Use Cases
 
 - CI pipelines
-- container base generation
+- container base image generation
 - chroot environments
 - rootfs normalization
-- converting VM images into portable rootfs
+- converting VM images → portable rootfs
 
 ---
 
 Summary
 
-"rootfs-disk2rootfs" converts heterogeneous rootfs sources into a clean, minimal, and portable archive by stripping disk-layer overhead and applying consistent compression.
+"rootfs-disk2rootfs" transforms heterogeneous rootfs sources into a clean, minimal, and portable archive by removing disk-layer overhead and applying consistent compression.
