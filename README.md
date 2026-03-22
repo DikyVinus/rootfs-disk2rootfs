@@ -1,4 +1,4 @@
-# rootfs-disk2rootfs
+# disk2rootfs
 
 Lightweight rootfs normalization tool that converts arbitrary Linux images into a clean, portable `.tar.xz` filesystem.
 
@@ -6,7 +6,7 @@ Lightweight rootfs normalization tool that converts arbitrary Linux images into 
 
 ## Overview
 
-`rootfs-disk2rootfs` ingests mixed rootfs formats and reconstructs them into a normalized archive suitable for:
+`disk2rootfs` ingests mixed rootfs formats and reconstructs them into a normalized archive suitable for:
 
 - chroot environments  
 - container bases  
@@ -59,7 +59,7 @@ It removes disk/container overhead and standardizes filesystem layout.
 ### 3. Run the workflow
 
 - Open **Actions**
-- Select the workflow (e.g. `rootfs-disk2rootfs`)
+- Select the workflow (e.g. `rootfs`)
 - Click **Run workflow**
 
 Provide input:
