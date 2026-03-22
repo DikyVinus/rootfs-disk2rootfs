@@ -4,7 +4,7 @@ Lightweight rootfs normalization tool that converts arbitrary Linux images into 
 
 ---
 
-### Overview
+## Overview
 
 `rootfs-disk2rootfs` ingests mixed rootfs formats and reconstructs them into a normalized archive suitable for:
 
@@ -16,78 +16,162 @@ It removes disk/container overhead and standardizes filesystem layout.
 
 ---
 
-# Supported Inputs
+## Supported Inputs
 
-#### Disk Images
+### Disk Images
 - `.img`  
 - `.raw`  
 - `disk.raw`  
 
-#### Virtual Machine Images
+### Virtual Machine Images
 - `.qcow2`  
 - `.qcow`  
 
-#### Tar Archives
+### Tar Archives
 - `.tar`  
 - `.tar.gz`  
 - `.tar.xz`  
 - `.tar.zst`  
 
-#### Container Archives
+### Container Archives
 - `.zip`  
 - `.7z`  
 
 ---
 
-# Processing Model
+## Tutorial (GitHub Actions)
 
-#### Step-by-step pipeline
+### 1. Fork the repository
 
-1. Download input  
-2. Extract archive (if applicable)  
-3. Convert `qcow → raw`  
-4. Detect filesystem:
-   - direct mount (ext4 / xfs / f2fs)  
-   - or partition scan (`losetup`)  
-5. Copy filesystem contents  
-6. Remove intermediate artifacts  
-7. Repack into compressed rootfs  
+- Open the repository page
+- Click **Fork**
+- This creates your own copy under your account
 
 ---
 
-# Output
+### 2. Enable Actions
 
-#### Archive format
-- `rootfs.tar.xz`
-
-#### Properties
-- no partition tables  
-- no unused blocks  
-- no container layers  
-- normalized filesystem structure  
+- Go to the **Actions** tab
+- Enable workflows if prompted
 
 ---
 
-# Compression
+### 3. Run the workflow
 
-#### Default
-```bash
-xz -T2 -3
+- Open **Actions**
+- Select the workflow (e.g. `rootfs-disk2rootfs`)
+- Click **Run workflow**
+
+Provide input:
+
+- `ARCHIVE_URL` → direct link to your image/archive  
+
+---
+
+### 4. Wait for processing
+
+Pipeline stages:
+```text
+download → extract → convert → mount → copy → repack
+
+Typical runtime:
+
+small images: ~3–5 min
+
+large images: ~10–20 min
 ```
+
+
+---
+
+5. Download result
+
+Go to Releases
+
+Find the run (tag = workflow run ID)
+
+Download:
+
+
+rootfs.tar.xz
+
+
+---
+
+### Processing Model
+
+Step-by-step pipeline
+
+1. Download input
+
+
+2. Extract archive (if applicable)
+
+
+3. Convert qcow → raw
+
+
+4. Detect filesystem:
+
+direct mount (ext4 / xfs / f2fs)
+
+or partition scan (losetup)
+
+
+
+5. Copy filesystem contents
+
+
+6. Remove intermediate artifacts
+
+
+7. Repack into compressed rootfs
+
+
+
+
+---
+
+### Output
+
+Archive format
+
+rootfs.tar.xz
+
+
+### Properties
+
+no partition tables
+
+no unused blocks
+
+no container layers
+
+normalized filesystem structure
+
+
+
+---
+
+### Compression
+
+Default
+
+xz -T2 -3
 
 multithreaded
 
 balanced speed / size
 
 
+
+---
+
 ### Alternatives
 
 xz -1 → faster, larger
-
 xz -6 → slower, smaller
-
 zstd → fastest, slightly larger
-
 
 
 ---
@@ -110,34 +194,32 @@ ACLs
 
 ---
 
-# Usage
+### Usage
 
-### Extract rootfs
-```bash
+Extract rootfs
+
 sudo tar --numeric-owner -xJf rootfs.tar.xz -C rootfs
-```
 
-### Enter chroot
-```bash
+Enter chroot
+
 sudo mount --bind /dev rootfs/dev
 sudo mount --bind /proc rootfs/proc
 sudo mount --bind /sys rootfs/sys
 sudo chroot rootfs /bin/bash
-```
 
 
 ---
 
-# Size Characteristics
+### Size Characteristics
 
-### Typical reduction
+Typical reduction
 
 raw disk images → 30–70% smaller
-
 .tar.gz → .tar.xz → 10–30% smaller
-
 .tar.xz → minimal
 
+
+---
 
 ### Source of reduction
 
@@ -151,18 +233,16 @@ stronger compression
 
 ---
 
-# Limitations
+### Limitations
 
-### requires root privileges:
-
-extraction
+requires root privileges:
 
 mounting
 
 metadata restoration
 
 
-large images may exceed CI disk limits
+large images may exceed GitHub Actions disk limits
 
 non-Linux filesystems unsupported
 
