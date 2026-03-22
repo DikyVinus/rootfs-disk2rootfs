@@ -1,163 +1,203 @@
-rootfs-disk2rootfs
+# rootfs-disk2rootfs
 
-Convert arbitrary Linux root filesystem images into a clean, normalized, compressed rootfs archive.
-
----
-
-Overview
-
-"rootfs-disk2rootfs" ingests heterogeneous rootfs sources and produces a standardized output:
-
-- Disk images: ".img", ".raw", ".qcow2"
-- Archives: ".tar", ".tar.gz", ".tar.xz", ".tar.zst"
-- Containers: ".zip", ".7z"
-
-It extracts the actual filesystem, removes container overhead, and outputs a normalized ".tar.xz" rootfs.
+Lightweight rootfs normalization tool that converts arbitrary Linux images into a clean, portable `.tar.xz` filesystem.
 
 ---
 
-Key Features
+### Overview
 
-- Converts disk → filesystem → tar
-- Removes:
-  - unused blocks
-  - partition tables
-  - container artifacts
-- Preserves:
-  - ownership (UID/GID)
-  - permissions
-  - symlinks
-  - xattrs / ACLs
-- Recompresses using multithreaded "xz"
+`rootfs-disk2rootfs` ingests mixed rootfs formats and reconstructs them into a normalized archive suitable for:
+
+- chroot environments  
+- container bases  
+- CI pipelines  
+
+It removes disk/container overhead and standardizes filesystem layout.
 
 ---
 
-Why Use This
+# Supported Inputs
 
-Official rootfs/images often include:
+#### Disk Images
+- `.img`  
+- `.raw`  
+- `disk.raw`  
 
-- padding / unused space
-- embedded partition layouts
-- suboptimal compression
-- container-specific structure
+#### Virtual Machine Images
+- `.qcow2`  
+- `.qcow`  
 
-This tool:
+#### Tar Archives
+- `.tar`  
+- `.tar.gz`  
+- `.tar.xz`  
+- `.tar.zst`  
 
-- reduces size (~10–70% typical)
-- produces deterministic output
-- standardizes rootfs for:
-  - "chroot"
-  - containers
-  - CI pipelines
-
----
-
-Supported Inputs
-
-Type| Examples
-Tar archives| ".tar", ".tar.gz", ".tar.xz", ".tar.zst"
-Disk images| ".img", ".raw", "disk.raw"
-VM images| ".qcow2", ".qcow"
-Containers| ".zip", ".7z"
+#### Container Archives
+- `.zip`  
+- `.7z`  
 
 ---
 
-Output
+# Processing Model
 
-- Format: "rootfs.tar.xz"
-- Characteristics:
-  - normalized filesystem
-  - no disk/container layers
-  - ready for "chroot", containers, or repackaging
+#### Step-by-step pipeline
 
----
-
-Internal Workflow
-
-1. Download input
-2. Extract archive (if applicable)
-3. Convert "qcow → raw"
+1. Download input  
+2. Extract archive (if applicable)  
+3. Convert `qcow → raw`  
 4. Detect filesystem:
-   - direct mount (ext4 / xfs / f2fs)
-   - or partition scan ("losetup")
-5. Copy filesystem contents
-6. Remove intermediate artifacts
-7. Repack using:
-   - "tar"
-   - "xz -T0 -3"
+   - direct mount (ext4 / xfs / f2fs)  
+   - or partition scan (`losetup`)  
+5. Copy filesystem contents  
+6. Remove intermediate artifacts  
+7. Repack into compressed rootfs  
 
 ---
 
-Usage
+# Output
 
-Extract rootfs
+#### Archive format
+- `rootfs.tar.xz`
 
+#### Properties
+- no partition tables  
+- no unused blocks  
+- no container layers  
+- normalized filesystem structure  
+
+---
+
+# Compression
+
+#### Default
+```bash
+xz -T0 -3
+```
+
+multithreaded
+
+balanced speed / size
+
+
+### Alternatives
+
+xz -1 → faster, larger
+
+xz -6 → slower, smaller
+
+zstd → fastest, slightly larger
+
+
+
+---
+
+### Filesystem Integrity
+
+Preserved attributes:
+
+ownership (UID/GID)
+
+permissions
+
+symlinks
+
+xattrs
+
+ACLs
+
+
+
+---
+
+# Usage
+
+### Extract rootfs
+```bash
 sudo tar --numeric-owner -xJf rootfs.tar.xz -C rootfs
+```
 
-Enter chroot
-
+### Enter chroot
+```bash
 sudo mount --bind /dev rootfs/dev
 sudo mount --bind /proc rootfs/proc
 sudo mount --bind /sys rootfs/sys
 sudo chroot rootfs /bin/bash
+```
+
 
 ---
 
-Compression Strategy
+# Size Characteristics
 
-Default:
+### Typical reduction
 
-xz -T0 -3
+raw disk images → 30–70% smaller
 
-- multithreaded
-- balanced speed vs size
+.tar.gz → .tar.xz → 10–30% smaller
 
-Alternatives:
+.tar.xz → minimal
 
-- "-6" → smaller, slower
-- "-1" → faster, larger
-- "zstd" → faster, slightly larger output
 
----
+### Source of reduction
 
-Limitations
+removal of unused blocks
 
-- Requires root privileges for:
-  - extraction
-  - mounting
-  - ownership restoration
-- Large images may exceed CI disk limits
-- Non-Linux filesystems are not supported
+elimination of padding
+
+stronger compression
+
+
 
 ---
 
-Safety Model
+# Limitations
 
-- Intermediate disk images are removed only after successful extraction
-- Rootfs validity is verified ("/etc", "/bin")
-- Cleanup is bounded to prevent filesystem corruption
+### requires root privileges:
 
----
+extraction
 
-Typical Size Reduction
+mounting
 
-Input Type| Reduction
-Raw disk images| 30–70%
-".tar.gz" → ".tar.xz"| 10–30%
-Already optimized ".tar.xz"| minimal
+metadata restoration
 
----
 
-Use Cases
+large images may exceed CI disk limits
 
-- CI pipelines
-- container base image generation
-- chroot environments
-- rootfs normalization
-- converting VM images → portable rootfs
+non-Linux filesystems unsupported
+
+
 
 ---
 
-Summary
+### Safety Model
 
-"rootfs-disk2rootfs" transforms heterogeneous rootfs sources into a clean, minimal, and portable archive by removing disk-layer overhead and applying consistent compression.
+intermediate images removed only after successful extraction
+
+rootfs validity checked (/etc, /bin)
+
+cleanup bounded to prevent corruption
+
+
+
+---
+
+### Use Cases
+
+CI pipelines
+
+container base generation
+
+chroot environments
+
+VM image conversion
+
+rootfs normalization
+
+
+
+---
+
+### Summary
+
+rootfs-disk2rootfs converts heterogeneous rootfs inputs into a minimal, portable archive by removing disk-level structures and applying consistent compression.
