@@ -37,51 +37,77 @@ jobs:
             xz-utils zstd util-linux e2fsprogs \
             p7zip-full qemu-utils unzip ca-certificates
 
-      - name: Download
+      - name: Download (preserve filename)
         run: |
-          curl -L --fail --retry 5 --retry-delay 3 -C - \
-            -o input.bin "${{ github.event.inputs.ROOTFS_URL }}"
-          echo "FILE=input.bin" >> $GITHUB_ENV
+          curl -L --fail --retry 5 --retry-delay 3 -OJ \
+            "${{ github.event.inputs.ROOTFS_URL }}"
+          FILE=$(ls -1 | head -n1)
+          echo "FILE=$FILE" >> $GITHUB_ENV
 
       - name: Prepare workspace
-        run: mkdir -p extracted mnt
+        run: mkdir -p input extracted mnt
 
-      - name: Extract input (root-safe)
+      - name: Normalize input
         run: |
           set -e
-          f="$FILE"
-          type=$(file -b "$f")
+          mv "$FILE" input/
 
-          case "$type" in
-            *tar*) sudo tar --numeric-owner --xattrs --acls -xf "$f" -C extracted ;;
-            *gzip*) sudo tar --numeric-owner --xattrs --acls -xzf "$f" -C extracted ;;
-            *XZ*) sudo tar --numeric-owner --xattrs --acls -xJf "$f" -C extracted ;;
-            *Zstandard*) sudo tar --numeric-owner --xattrs --acls --zstd -xf "$f" -C extracted ;;
-            *Zip*) unzip -q "$f" -d extracted ;;
-            *7-zip*) 7z x "$f" -oextracted ;;
-            *) cp "$f" extracted/ ;;
-          esac
-
-          rm -f "$f"
-
-      - name: Convert qcow → raw
+      - name: Extract or stage input
         run: |
-          shopt -s nullglob
-          for f in extracted/*.qcow2 extracted/*.qcow; do
+          set -e
+          shopt -s nullglob globstar
+
+          for f in input/*; do
+            type=$(file -b "$f")
+
+            case "$type" in
+              *QCOW*|*QEMU*)
+                mv "$f" extracted/rootfs.qcow2
+                ;;
+              *tar*)
+                sudo tar --numeric-owner --xattrs --acls -xf "$f" -C extracted
+                ;;
+              *gzip*)
+                sudo tar --numeric-owner --xattrs --acls -xzf "$f" -C extracted
+                ;;
+              *XZ*)
+                sudo tar --numeric-owner --xattrs --acls -xJf "$f" -C extracted
+                ;;
+              *Zstandard*)
+                sudo tar --numeric-owner --xattrs --acls --zstd -xf "$f" -C extracted
+                ;;
+              *Zip*)
+                unzip -q "$f" -d extracted
+                ;;
+              *7-zip*)
+                7z x "$f" -oextracted
+                ;;
+              *)
+                cp "$f" extracted/
+                ;;
+            esac
+          done
+
+      - name: Convert qcow → raw (recursive)
+        run: |
+          shopt -s nullglob globstar
+          for f in extracted/**/*.qcow2 extracted/**/*.qcow; do
             [ -f "$f" ] || continue
+            echo "Converting $f"
             qemu-img convert -O raw "$f" "${f%.*}.raw"
           done
 
-      - name: Extract disk images
+      - name: Extract disk images (recursive)
         run: |
           set -e
-          shopt -s nullglob
+          shopt -s nullglob globstar
           found=0
 
-          for img in extracted/*.img extracted/*.raw extracted/*disk*; do
+          for img in extracted/**/*.img extracted/**/*.raw extracted/**/*disk*; do
             [ -f "$img" ] || continue
 
             if file "$img" | grep -qiE "filesystem|ext4|xfs|f2fs"; then
+              echo "Direct mount: $img"
               sudo mount -o loop,ro "$img" mnt || continue
               sudo cp -a mnt/. extracted/
               sudo umount mnt
@@ -91,9 +117,10 @@ jobs:
           done
 
           if [ "$found" -eq 0 ]; then
-            for img in extracted/*.img extracted/*.raw extracted/*disk*; do
+            for img in extracted/**/*.img extracted/**/*.raw extracted/**/*disk*; do
               [ -f "$img" ] || continue
 
+              echo "Partition scan: $img"
               loop=$(sudo losetup -Pf --show "$img") || continue
 
               for p in ${loop}p*; do
@@ -110,14 +137,6 @@ jobs:
           fi
 
           echo "FOUND=$found" >> $GITHUB_ENV
-
-      - name: Cleanup intermediates
-        run: |
-          if [ "$FOUND" = "1" ]; then
-            sudo rm -f extracted/*.img extracted/*.raw \
-              extracted/*.qcow extracted/*.qcow2 \
-              extracted/*.zip extracted/*.7z 2>/dev/null || true
-          fi
 
       - name: Validate rootfs
         run: |
