@@ -126,7 +126,7 @@ jobs:
 
       - name: Repack (profile-based)
         run: |
-          THREADS=0
+          THREADS=2
           OUT="${{ github.event.inputs.OUTPUT_NAME }}"
 
           case "${{ github.event.inputs.COMPRESSION }}" in
@@ -138,7 +138,7 @@ jobs:
               CMD="xz -T${THREADS} -3"
               EXT="tar.xz"
               ;;
-            "small (xz -6)")
+            "compact (xz -6)")
               CMD="xz -T${THREADS} -6"
               EXT="tar.xz"
               ;;
